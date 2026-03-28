@@ -1,7 +1,7 @@
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import os
 
@@ -16,28 +16,20 @@ from tensorflow.keras.models import load_model
 class LoadedArtifacts:
     model_file: str
     keras_model: Any
-    scaler: object
-    feature_cols: List[str]
+    expected_cols: List[str]
     target_names: List[str]
 
 
-def _get_expected_feature_cols(artifacts: LoadedArtifacts) -> List[str]:
-    scaler_cols = getattr(artifacts.scaler, "feature_names_in_", None)
-    if scaler_cols is not None and len(scaler_cols) > 0:
-        return [str(col) for col in scaler_cols]
-    return artifacts.feature_cols
+def _load_expected_cols_from_train_csv() -> List[str]:
+    # Coincide con la referencia: si existe X_train_final.csv, usar exactamente su orden de columnas.
+    train_cols_path = os.getenv("TRAIN_COLS_PATH", "datasets_finales/X_train_final.csv")
+    path = Path(train_cols_path)
 
+    if not path.exists():
+        return []
 
-def _normalize_input_keys(raw_features: Dict[str, float]) -> Dict[str, float]:
-    normalized = dict(raw_features)
-
-    # Compatibilidad entre datasets/versiones de pipeline.
-    if "lluvias" not in normalized and "deficit_lluvia" in normalized:
-        normalized["lluvias"] = normalized["deficit_lluvia"]
-    if "deficit_lluvia" not in normalized and "lluvias" in normalized:
-        normalized["deficit_lluvia"] = normalized["lluvias"]
-
-    return normalized
+    header_cols = pd.read_csv(path, nrows=0).columns.tolist()
+    return [str(col) for col in header_cols]
 
 
 def _resolve_keras_path(model_dir: Path, pkl_data: Dict, default_keras_name: str) -> Path:
@@ -81,7 +73,6 @@ def load_artifacts(model_dir: Path, pkl_name: str, keras_name: str) -> LoadedArt
 
     feature_cols = pkl_data.get("feature_cols", [])
     target_names = pkl_data.get("target_names", [])
-    scaler = pkl_data.get("scaler")
 
     if not feature_cols:
         raise ValueError("El PKL no contiene 'feature_cols'.")
@@ -89,52 +80,37 @@ def load_artifacts(model_dir: Path, pkl_name: str, keras_name: str) -> LoadedArt
     if not target_names:
         raise ValueError("El PKL no contiene 'target_names'.")
 
+    expected_cols = _load_expected_cols_from_train_csv() or [str(col) for col in feature_cols]
+
     return LoadedArtifacts(
         model_file=str(keras_path.name),
         keras_model=keras_model,
-        scaler=scaler,
-        feature_cols=feature_cols,
+        expected_cols=expected_cols,
         target_names=target_names,
     )
 
 
-def transform_features(input_features: Dict[str, float], artifacts: LoadedArtifacts) -> Tuple[np.ndarray, List[str]]:
-    expected_cols = _get_expected_feature_cols(artifacts)
-    normalized = _normalize_input_keys(input_features)
+def transform_features(input_features: Dict[str, float], artifacts: LoadedArtifacts) -> np.ndarray:
+    missing = [col for col in artifacts.expected_cols if col not in input_features]
+    if missing:
+        raise ValueError(f"Faltan columnas requeridas para inferencia: {missing}")
 
-    missing = [col for col in expected_cols if col not in normalized]
-
-    row = {col: float(normalized.get(col, 0.0)) for col in expected_cols}
-    df = pd.DataFrame([row], columns=expected_cols)
-
-    values = df.values
-    if artifacts.scaler is not None:
-        values = artifacts.scaler.transform(df)
-
-    return np.asarray(values, dtype=np.float32), missing
+    df = pd.DataFrame([input_features])
+    df = df[artifacts.expected_cols]
+    return np.asarray(df.values)
 
 
 def transform_batch_features(
     observations: List[Dict[str, float]],
     artifacts: LoadedArtifacts,
-) -> Tuple[np.ndarray, List[int]]:
-    expected_cols = _get_expected_feature_cols(artifacts)
+) -> np.ndarray:
+    for idx, obs in enumerate(observations):
+        missing = [col for col in artifacts.expected_cols if col not in obs]
+        if missing:
+            raise ValueError(
+                f"Faltan columnas requeridas para inferencia en observations[{idx}]: {missing}"
+            )
 
-    normalized_obs = [_normalize_input_keys(obs) for obs in observations]
-
-    missing_counts = [
-        sum(1 for col in expected_cols if col not in obs)
-        for obs in normalized_obs
-    ]
-
-    rows = []
-    for obs in normalized_obs:
-        rows.append({col: float(obs.get(col, 0.0)) for col in expected_cols})
-
-    df = pd.DataFrame(rows, columns=expected_cols)
-
-    values = df.values
-    if artifacts.scaler is not None:
-        values = artifacts.scaler.transform(df)
-
-    return np.asarray(values, dtype=np.float32), missing_counts
+    df = pd.DataFrame(observations)
+    df = df[artifacts.expected_cols]
+    return np.asarray(df.values)

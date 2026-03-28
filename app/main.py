@@ -85,7 +85,6 @@ def _build_prediction_response(
     probs: np.ndarray,
     artifacts: LoadedArtifacts,
     return_proba: bool,
-    missing_cols_count: int = 0,
 ) -> PredictionResponse:
     pred_idx = int(np.argmax(probs))
     pred_name = artifacts.target_names[pred_idx]
@@ -98,8 +97,6 @@ def _build_prediction_response(
             artifacts.target_names[i]: float(probs[i])
             for i in range(min(len(artifacts.target_names), len(probs)))
         }
-        if missing_cols_count > 0:
-            probabilities["_warning_missing_cols_filled_with_0"] = float(missing_cols_count)
 
     return PredictionResponse(
         predicted_class=pred_name,
@@ -142,11 +139,11 @@ def metadata() -> MetadataResponse:
 
     return MetadataResponse(
         model_file=artifacts.model_file,
-        feature_cols=artifacts.feature_cols,
+        feature_cols=artifacts.expected_cols,
         target_names=artifacts.target_names,
         objective="Predecir la clase de severidad de sequia: Sin sequia, D0, D1, D2, D3, D4.",
         class_catalog=available_catalog,
-        has_scaler=artifacts.scaler is not None,
+        has_scaler=False,
     )
 
 
@@ -155,7 +152,7 @@ def predict(payload: PredictionRequest) -> PredictionResponse:
     artifacts: LoadedArtifacts = app.state.artifacts
 
     try:
-        x, missing_cols = transform_features(payload.features, artifacts)
+        x = transform_features(payload.features, artifacts)
         probs = artifacts.keras_model.predict(x, verbose=0)
         probs = np.asarray(probs)[0]
     except Exception as exc:
@@ -165,7 +162,6 @@ def predict(payload: PredictionRequest) -> PredictionResponse:
         probs=probs,
         artifacts=artifacts,
         return_proba=payload.return_proba,
-        missing_cols_count=len(missing_cols),
     )
 
 
@@ -177,7 +173,7 @@ def predict_batch(payload: BatchPredictionRequest) -> List[PredictionResponse]:
         raise HTTPException(status_code=400, detail="'observations' no puede estar vacio.")
 
     try:
-        x, missing_counts = transform_batch_features(payload.observations, artifacts)
+        x = transform_batch_features(payload.observations, artifacts)
 
         all_probs = artifacts.keras_model.predict(x, verbose=0)
         all_probs = np.asarray(all_probs)
@@ -191,7 +187,6 @@ def predict_batch(payload: BatchPredictionRequest) -> List[PredictionResponse]:
                 probs=probs,
                 artifacts=artifacts,
                 return_proba=payload.return_proba,
-                missing_cols_count=missing_counts[idx],
             )
         )
 
