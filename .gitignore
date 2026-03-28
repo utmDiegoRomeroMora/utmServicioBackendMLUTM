@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+
+# Build/Test
+.pytest_cache/
+.coverage
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Logs
+*.log
+
+# Optional: ignora pesos pesados si no deseas subirlos al repo
+# models/*.pkl
+# models/*.keras
+# models/*.h5
