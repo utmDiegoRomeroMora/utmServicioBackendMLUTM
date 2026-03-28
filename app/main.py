@@ -3,11 +3,10 @@ from pathlib import Path
 from typing import List
 
 import numpy as np
-import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.model_loader import LoadedArtifacts, load_artifacts, transform_features
+from app.model_loader import LoadedArtifacts, load_artifacts, transform_batch_features, transform_features
 from app.schemas import BatchPredictionRequest, MetadataResponse, PredictionRequest, PredictionResponse
 
 
@@ -178,19 +177,7 @@ def predict_batch(payload: BatchPredictionRequest) -> List[PredictionResponse]:
         raise HTTPException(status_code=400, detail="'observations' no puede estar vacio.")
 
     try:
-        # Preserva el orden de entrada y alinea columnas contra feature_cols.
-        x_df = pd.DataFrame(payload.observations)
-        x_df = x_df.reindex(columns=artifacts.feature_cols, fill_value=0.0)
-        x_df = x_df.astype(float)
-
-        missing_counts = [
-            sum(1 for col in artifacts.feature_cols if col not in obs)
-            for obs in payload.observations
-        ]
-
-        x = x_df.values
-        if artifacts.scaler is not None:
-            x = artifacts.scaler.transform(x_df)
+        x, missing_counts = transform_batch_features(payload.observations, artifacts)
 
         all_probs = artifacts.keras_model.predict(x, verbose=0)
         all_probs = np.asarray(all_probs)
