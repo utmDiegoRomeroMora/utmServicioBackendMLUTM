@@ -1,11 +1,13 @@
 import os
 from pathlib import Path
+from typing import List
 
 import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 
 from app.model_loader import LoadedArtifacts, load_artifacts, transform_features
-from app.schemas import MetadataResponse, PredictionRequest, PredictionResponse
+from app.schemas import BatchPredictionRequest, MetadataResponse, PredictionRequest, PredictionResponse
 
 
 MODEL_DIR = Path(os.getenv("MODEL_DIR", "models"))
@@ -62,6 +64,38 @@ def _interpret_class(class_name: str) -> dict:
     return CLASS_CATALOG.get(class_name, default)
 
 
+def _build_prediction_response(
+    probs: np.ndarray,
+    artifacts: LoadedArtifacts,
+    return_proba: bool,
+    missing_cols_count: int = 0,
+) -> PredictionResponse:
+    pred_idx = int(np.argmax(probs))
+    pred_name = artifacts.target_names[pred_idx]
+    confidence = float(probs[pred_idx])
+    class_info = _interpret_class(pred_name)
+
+    probabilities = None
+    if return_proba:
+        probabilities = {
+            artifacts.target_names[i]: float(probs[i])
+            for i in range(min(len(artifacts.target_names), len(probs)))
+        }
+        if missing_cols_count > 0:
+            probabilities["_warning_missing_cols_filled_with_0"] = float(missing_cols_count)
+
+    return PredictionResponse(
+        predicted_class=pred_name,
+        predicted_index=pred_idx,
+        confidence=confidence,
+        severity_level=class_info["severity_level"],
+        severity_description=class_info["severity_description"],
+        recommendation=class_info["recommendation"],
+        possible_mlp_results=artifacts.target_names,
+        probabilities=probabilities,
+    )
+
+
 @app.on_event("startup")
 def startup_event() -> None:
     artifacts = load_artifacts(model_dir=MODEL_DIR, pkl_name=MODEL_PKL, keras_name=MODEL_KERAS)
@@ -110,28 +144,50 @@ def predict(payload: PredictionRequest) -> PredictionResponse:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Error al transformar o predecir: {exc}") from exc
 
-    pred_idx = int(np.argmax(probs))
-    pred_name = artifacts.target_names[pred_idx]
-    confidence = float(probs[pred_idx])
-    class_info = _interpret_class(pred_name)
-
-    probabilities = None
-    if payload.return_proba:
-        probabilities = {
-            artifacts.target_names[i]: float(probs[i])
-            for i in range(min(len(artifacts.target_names), len(probs)))
-        }
-
-        if missing_cols:
-            probabilities["_warning_missing_cols_filled_with_0"] = float(len(missing_cols))
-
-    return PredictionResponse(
-        predicted_class=pred_name,
-        predicted_index=pred_idx,
-        confidence=confidence,
-        severity_level=class_info["severity_level"],
-        severity_description=class_info["severity_description"],
-        recommendation=class_info["recommendation"],
-        possible_mlp_results=artifacts.target_names,
-        probabilities=probabilities,
+    return _build_prediction_response(
+        probs=probs,
+        artifacts=artifacts,
+        return_proba=payload.return_proba,
+        missing_cols_count=len(missing_cols),
     )
+
+
+@app.post("/predict_batch", response_model=List[PredictionResponse])
+def predict_batch(payload: BatchPredictionRequest) -> List[PredictionResponse]:
+    artifacts: LoadedArtifacts = app.state.artifacts
+
+    if not payload.observations:
+        raise HTTPException(status_code=400, detail="'observations' no puede estar vacio.")
+
+    try:
+        # Preserva el orden de entrada y alinea columnas contra feature_cols.
+        x_df = pd.DataFrame(payload.observations)
+        x_df = x_df.reindex(columns=artifacts.feature_cols, fill_value=0.0)
+        x_df = x_df.astype(float)
+
+        missing_counts = [
+            sum(1 for col in artifacts.feature_cols if col not in obs)
+            for obs in payload.observations
+        ]
+
+        x = x_df.values
+        if artifacts.scaler is not None:
+            x = artifacts.scaler.transform(x_df)
+
+        all_probs = artifacts.keras_model.predict(x, verbose=0)
+        all_probs = np.asarray(all_probs)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Error en procesamiento por lotes: {exc}") from exc
+
+    results: List[PredictionResponse] = []
+    for idx, probs in enumerate(all_probs):
+        results.append(
+            _build_prediction_response(
+                probs=probs,
+                artifacts=artifacts,
+                return_proba=payload.return_proba,
+                missing_cols_count=missing_counts[idx],
+            )
+        )
+
+    return results

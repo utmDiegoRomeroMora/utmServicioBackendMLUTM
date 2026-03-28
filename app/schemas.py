@@ -12,6 +12,15 @@ class PredictionRequest(BaseModel):
     )
 
 
+class BatchPredictionRequest(BaseModel):
+    observations: List[Dict[str, float]] = Field(
+        ..., description="Lista de diccionarios con las columnas del CSV"
+    )
+    return_proba: bool = Field(
+        default=True, description="Si es true, devuelve probabilidades para cada fila"
+    )
+
+
 class PredictionResponse(BaseModel):
     predicted_class: str
     predicted_index: int
