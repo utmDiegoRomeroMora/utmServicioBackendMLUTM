@@ -5,6 +5,7 @@ from typing import List
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.model_loader import LoadedArtifacts, load_artifacts, transform_features
 from app.schemas import BatchPredictionRequest, MetadataResponse, PredictionRequest, PredictionResponse
@@ -18,6 +19,23 @@ app = FastAPI(
     title="UTM Sequia API",
     version="1.0.0",
     description="API de inferencia para clasificacion de sequia con modelo Keras + artefactos PKL",
+)
+
+# CORS para frontend (ej. Next.js en localhost:3000 o dominio de produccion).
+cors_origins_raw = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000")
+if cors_origins_raw.strip() == "*":
+    cors_origins = ["*"]
+    allow_credentials = False
+else:
+    cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
+    allow_credentials = True
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
