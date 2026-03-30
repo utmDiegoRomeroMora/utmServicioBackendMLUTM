@@ -294,4 +294,4 @@ Invoke-RestMethod -Uri "http://localhost:8000/predict_batch" -Method Post -Body 
 
 ## 14. Licencia y autoria
 
-Define aqui la licencia del proyecto (por ejemplo MIT) y los responsables del mantenimiento.
+Diego Romero Mora
