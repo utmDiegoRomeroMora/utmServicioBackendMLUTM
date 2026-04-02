@@ -7,16 +7,12 @@ services:
     startCommand: gunicorn -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:$PORT --workers 1 --threads 1 --timeout 180 --graceful-timeout 30 --keep-alive 5
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.10
-      - key: TF_CPP_MIN_LOG_LEVEL
-        value: "3"
+        value: 3.12.7
       - key: OMP_NUM_THREADS
         value: "1"
       - key: WEB_CONCURRENCY
         value: "1"
       - key: MODEL_DIR
         value: models
-      - key: MODEL_PKL
-        value: modelo_entrenado.pkl
-      - key: MODEL_KERAS
-        value: modelo_entrenado.keras
+      - key: MODEL_XGB
+        value: xgb_t1_estricta_ex_ante_sinmun.json
