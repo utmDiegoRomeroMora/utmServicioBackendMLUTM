@@ -84,7 +84,7 @@ def _interpret_class(class_name: str) -> dict:
     default = {
         "severity_level": "indeterminado",
         "severity_description": "No se encontro descripcion para la clase predicha.",
-        "recommendation": "Verificar configuracion de target_names en el artefacto PKL.",
+        "recommendation": "Verificar configuracion de target_names en la variable de entorno.",
     }
     return CLASS_CATALOG.get(class_name, default)
 
