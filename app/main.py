@@ -11,13 +11,12 @@ from app.schemas import BatchPredictionRequest, MetadataResponse, PredictionRequ
 
 
 MODEL_DIR = Path(os.getenv("MODEL_DIR", "models"))
-MODEL_PKL = os.getenv("MODEL_PKL", "modelo_entrenado.pkl")
-MODEL_KERAS = os.getenv("MODEL_KERAS", "modelo_entrenado.keras")
+MODEL_XGB = os.getenv("MODEL_XGB", "xgb_t1_estricta_ex_ante_sinmun.json")
 
 app = FastAPI(
     title="UTM Sequia API",
     version="1.0.0",
-    description="API de inferencia para clasificacion de sequia con modelo Keras + artefactos PKL",
+    description="API de inferencia para clasificacion de sequia con modelo XGBoost",
 )
 
 cors_origins_raw = os.getenv("CORS_ALLOW_ORIGINS", "https://utm-front-end-diego-romero.vercel.app")
@@ -146,9 +145,9 @@ def startup_event() -> None:
     # Carga modelo y artefactos una sola vez al iniciar el servidor.
     print(
         "[INFO] startup_event: iniciando carga de artefactos "
-        f"(MODEL_DIR='{MODEL_DIR}', MODEL_PKL='{MODEL_PKL}', MODEL_KERAS='{MODEL_KERAS}')"
+        f"(MODEL_DIR='{MODEL_DIR}', MODEL_XGB='{MODEL_XGB}')"
     )
-    artifacts = load_artifacts(model_dir=MODEL_DIR, pkl_name=MODEL_PKL, keras_name=MODEL_KERAS)
+    artifacts = load_artifacts(model_dir=MODEL_DIR, xgb_name=MODEL_XGB)
     app.state.artifacts = artifacts
     print(
         "[INFO] startup_event: artefactos cargados correctamente "
@@ -236,7 +235,7 @@ def predict(payload: PredictionRequest) -> PredictionResponse:
         print(f"[INFO] /predict: transformacion completada con shape={x.shape}")
 
         # Ejecuta la prediccion para una sola observacion.
-        probs = artifacts.keras_model.predict(x, verbose=0)
+        probs = artifacts.model.predict_proba(x)
         probs = np.asarray(probs)[0]
         print("[INFO] /predict: prediccion completada")
     except Exception as exc:
@@ -280,7 +279,7 @@ def predict_batch(payload: BatchPredictionRequest) -> List[PredictionResponse]:
         print(f"[INFO] /predict_batch: transformacion por lotes completada con shape={x.shape}")
 
         # Ejecuta inferencia para todo el lote en una sola llamada.
-        all_probs = artifacts.keras_model.predict(x, verbose=0)
+        all_probs = artifacts.model.predict_proba(x)
         all_probs = np.asarray(all_probs)
         print(f"[INFO] /predict_batch: prediccion por lotes completada (filas={len(all_probs)})")
     except Exception as exc:
